@@ -138,7 +138,7 @@ resource "aws_ecs_task_definition" "migration" {
     {
       name    = "migration"
       image   = "${var.ecr_repo_url}:${var.migration_image_tag}"
-      command = ["sh", "-c", "npx prisma migrate deploy && echo 'Migration Complete'"]
+      command = ["sh", "-c", "sh ./scripts/migrate-safe.sh && echo 'Migration Complete'"]
       secrets = [
         {
           name      = "DATABASE_URL"

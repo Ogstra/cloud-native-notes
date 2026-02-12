@@ -46,11 +46,22 @@ jobs:
         id: run-task
         run: |
           set -euo pipefail
+
+          OVERRIDES=$(jq -nc '{
+            containerOverrides: [
+              {
+                name: "migration",
+                command: ["sh", "-c", "sh ./scripts/migrate-safe.sh"]
+              }
+            ]
+          }')
+
           TASK_ARN=$(aws ecs run-task \
             --cluster $ECS_CLUSTER \
             --task-definition $ECS_MIGRATION_TASK_FAMILY \
             --launch-type FARGATE \
             --network-configuration "awsvpcConfiguration={subnets=[${{ steps.net.outputs.subnets }}],securityGroups=[${{ steps.net.outputs.security_groups }}],assignPublicIp=${{ steps.net.outputs.assign_public_ip }}}" \
+            --overrides "$OVERRIDES" \
             --query 'tasks[0].taskArn' \
             --output text)
 
