@@ -40,6 +40,29 @@ resource "aws_iam_role_policy" "ssm_access" {
   })
 }
 
+resource "aws_iam_role_policy" "logs_access" {
+  name = "${var.environment}-logs-access"
+  role = aws_iam_role.execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = [
+          "arn:aws:logs:${var.aws_region}:*:log-group:/ecs/${var.environment}-*",
+          "arn:aws:logs:${var.aws_region}:*:log-group:/ecs/${var.environment}-*:log-stream:*"
+        ]
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role" "task" {
   name = "${var.environment}-ecs-task-role"
 

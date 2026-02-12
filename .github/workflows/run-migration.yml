@@ -44,9 +44,35 @@ jobs:
           echo "sg=$SG" >> $GITHUB_OUTPUT
 
       - name: Run Migration Task
+        id: run-task
         run: |
-          aws ecs run-task \
+          TASK_ARN=$(aws ecs run-task \
             --cluster dev-cluster \
             --task-definition dev-migration \
             --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[${{ steps.infra.outputs.subnets }}],securityGroups=[${{ steps.infra.outputs.sg }}],assignPublicIp=ENABLED}"
+            --network-configuration "awsvpcConfiguration={subnets=[${{ steps.infra.outputs.subnets }}],securityGroups=[${{ steps.infra.outputs.sg }}],assignPublicIp=ENABLED}" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          if [ -z "$TASK_ARN" ] || [ "$TASK_ARN" = "None" ]; then
+            echo "Migration task failed to start"
+            exit 1
+          fi
+
+          echo "task_arn=$TASK_ARN" >> $GITHUB_OUTPUT
+
+      - name: Wait Migration Completion
+        run: |
+          aws ecs wait tasks-stopped --cluster dev-cluster --tasks "${{ steps.run-task.outputs.task_arn }}"
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster dev-cluster \
+            --tasks "${{ steps.run-task.outputs.task_arn }}" \
+            --query "tasks[0].containers[?name=='migration'] | [0].exitCode" \
+            --output text)
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "Migration failed with exit code: $EXIT_CODE"
+            aws logs tail /ecs/dev-migration --since 15m || true
+            exit 1
+          fi
