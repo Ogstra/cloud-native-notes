@@ -22,7 +22,9 @@ RUN npm run build
 FROM node:20-bookworm AS prod-deps
 WORKDIR /app
 COPY app/backend/package.json ./
-RUN npm install --ignore-scripts --legacy-peer-deps --omit=dev
+COPY app/backend/prisma ./prisma
+RUN npm install --legacy-peer-deps
+RUN npm prune --production
 
 # Production Stage
 FROM gcr.io/distroless/nodejs20-debian12
