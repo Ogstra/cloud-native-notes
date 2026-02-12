@@ -18,9 +18,11 @@ WORKDIR /app
 COPY app/backend/ .
 RUN npm run build
 
-# Prune Stage
-FROM builder AS pruner
-RUN npm prune --production
+# Prod Deps Stage
+FROM node:20-bookworm AS prod-deps
+WORKDIR /app
+COPY app/backend/package.json ./
+RUN npm install --ignore-scripts --legacy-peer-deps --omit=dev
 
 # Production Stage
 FROM gcr.io/distroless/nodejs20-debian12
@@ -29,7 +31,7 @@ WORKDIR /app
 
 COPY --from=builder /app/dist ./dist
 COPY --from=frontend-builder /app/dist ./dist/client
-COPY --from=pruner /app/node_modules ./node_modules
+COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 
 EXPOSE 3000
