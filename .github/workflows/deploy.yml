@@ -25,6 +25,8 @@ env:
   ECS_SERVICE_FRONTEND: dev-frontend-service
   ECS_CLUSTER: dev-cluster
   ECS_MIGRATION_TASK_FAMILY: dev-migration
+  LOG_GROUP_BACKEND: /ecs/dev-app
+  LOG_GROUP_FRONTEND: /ecs/dev-frontend
 
 jobs:
   deploy:
@@ -193,4 +195,91 @@ jobs:
 
           aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition "${{ steps.taskdefs.outputs.backend_td }}"
           aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE_FRONTEND --task-definition "${{ steps.taskdefs.outputs.frontend_td }}"
-          aws ecs wait services-stable --cluster $ECS_CLUSTER --services $ECS_SERVICE $ECS_SERVICE_FRONTEND
+
+          wait_for_service() {
+            local service="$1"
+            local timeout_seconds=1800
+            local interval=15
+            local elapsed=0
+
+            echo "Waiting for ECS service to stabilize: $service"
+
+            while [ "$elapsed" -lt "$timeout_seconds" ]; do
+              SERVICE_JSON=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$service")
+
+              DESIRED=$(echo "$SERVICE_JSON" | jq -r '.services[0].desiredCount')
+              RUNNING=$(echo "$SERVICE_JSON" | jq -r '.services[0].runningCount')
+              PENDING=$(echo "$SERVICE_JSON" | jq -r '.services[0].pendingCount')
+              PRIMARY_ROLLOUT=$(echo "$SERVICE_JSON" | jq -r '.services[0].deployments[] | select(.status=="PRIMARY") | .rolloutState')
+              IN_PROGRESS_DEPLOYS=$(echo "$SERVICE_JSON" | jq -r '[.services[0].deployments[] | select(.rolloutState != "COMPLETED")] | length')
+
+              echo "[$service] desired=$DESIRED running=$RUNNING pending=$PENDING rollout=$PRIMARY_ROLLOUT in_progress_deployments=$IN_PROGRESS_DEPLOYS"
+
+              if [ "$PRIMARY_ROLLOUT" = "FAILED" ]; then
+                echo "Primary deployment failed for service: $service"
+                return 1
+              fi
+
+              if [ "$RUNNING" = "$DESIRED" ] && [ "$PENDING" = "0" ] && [ "$IN_PROGRESS_DEPLOYS" = "0" ]; then
+                echo "Service stabilized: $service"
+                return 0
+              fi
+
+              sleep "$interval"
+              elapsed=$((elapsed + interval))
+            done
+
+            echo "Timeout while waiting for service stabilization: $service"
+            return 1
+          }
+
+          print_service_diagnostics() {
+            local service="$1"
+            echo ""
+            echo "===== Diagnostics for $service ====="
+            aws ecs describe-services \
+              --cluster "$ECS_CLUSTER" \
+              --services "$service" \
+              --query "services[0].events[0:10].[createdAt,message]" \
+              --output table || true
+
+            STOPPED_TASKS=$(aws ecs list-tasks \
+              --cluster "$ECS_CLUSTER" \
+              --service-name "$service" \
+              --desired-status STOPPED \
+              --max-items 5 \
+              --query "taskArns" \
+              --output text || true)
+
+            if [ -n "${STOPPED_TASKS:-}" ] && [ "$STOPPED_TASKS" != "None" ]; then
+              aws ecs describe-tasks \
+                --cluster "$ECS_CLUSTER" \
+                --tasks $STOPPED_TASKS \
+                --query "tasks[].{taskArn:taskArn,lastStatus:lastStatus,stoppedReason:stoppedReason,containers:containers[].{name:name,reason:reason,exitCode:exitCode}}" \
+                --output json || true
+            else
+              echo "No recently stopped tasks found for $service"
+            fi
+          }
+
+          set +e
+          wait_for_service "$ECS_SERVICE"
+          BACKEND_WAIT_EXIT=$?
+          wait_for_service "$ECS_SERVICE_FRONTEND"
+          FRONTEND_WAIT_EXIT=$?
+          set -e
+
+          if [ "$BACKEND_WAIT_EXIT" -ne 0 ] || [ "$FRONTEND_WAIT_EXIT" -ne 0 ]; then
+            print_service_diagnostics "$ECS_SERVICE"
+            print_service_diagnostics "$ECS_SERVICE_FRONTEND"
+
+            echo ""
+            echo "===== Backend logs (last 15m) ====="
+            aws logs tail "$LOG_GROUP_BACKEND" --since 15m || true
+
+            echo ""
+            echo "===== Frontend logs (last 15m) ====="
+            aws logs tail "$LOG_GROUP_FRONTEND" --since 15m || true
+
+            exit 1
+          fi
