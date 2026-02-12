@@ -14,7 +14,9 @@ permissions:
 env:
   AWS_REGION: us-east-1 # Change to your region
   ECR_REPOSITORY_BACKEND: dev-backend # Must match Terraform Resource Name
+  ECR_REPOSITORY_FRONTEND: dev-frontend # Must match Terraform Resource Name
   ECS_SERVICE: dev-service
+  ECS_SERVICE_FRONTEND: dev-frontend-service
   ECS_CLUSTER: dev-cluster
   ECS_TASK_DEFINITION: dev-app
   CONTAINER_NAME: backend
@@ -84,9 +86,16 @@ jobs:
           docker build --target builder -f app/backend/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:migration .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:migration
 
+          # Build and Push Frontend Image
+          docker build -f app/frontend/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG ./app/frontend
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
+
 
       
       # Alternative: Force deployment if TF manages Task Def
       - name: Force ECS Deployment
         run: |
           aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --force-new-deployment
+          aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE_FRONTEND }} --force-new-deployment

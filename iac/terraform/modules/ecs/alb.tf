@@ -18,7 +18,19 @@ resource "aws_lb_target_group" "main" {
   target_type = "ip"
 
   health_check {
-    path = "/" # Adjust if health check endpoint differs (e.g. /api/health)
+    path = "/api"
+  }
+}
+
+resource "aws_lb_target_group" "frontend" {
+  name        = "${var.environment}-frontend-tg"
+  port        = 8080
+  protocol    = "HTTP"
+  vpc_id      = var.vpc_id
+  target_type = "ip"
+
+  health_check {
+    path = "/"
   }
 }
 
@@ -29,7 +41,23 @@ resource "aws_lb_listener" "http" {
 
   default_action {
     type             = "forward"
+    target_group_arn = aws_lb_target_group.frontend.arn
+  }
+}
+
+resource "aws_lb_listener_rule" "api" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 10
+
+  action {
+    type             = "forward"
     target_group_arn = aws_lb_target_group.main.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/api", "/api/*"]
+    }
   }
 }
 
@@ -59,6 +87,13 @@ resource "aws_security_group" "ecs" {
   ingress {
     from_port       = 3000
     to_port         = 3000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  ingress {
+    from_port       = 8080
+    to_port         = 8080
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
