@@ -47,7 +47,7 @@ resource "aws_lb_listener" "http" {
 
 resource "aws_lb_listener_rule" "api" {
   listener_arn = aws_lb_listener.http.arn
-  priority     = 10
+  priority     = 100
 
   action {
     type             = "forward"

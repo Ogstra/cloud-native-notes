@@ -46,11 +46,6 @@ resource "aws_cloudwatch_log_group" "app" {
   retention_in_days = 7
 }
 
-resource "aws_cloudwatch_log_group" "frontend" {
-  name              = "/ecs/${var.environment}-frontend"
-  retention_in_days = 7
-}
-
 resource "aws_ecs_service" "main" {
   name            = "${var.environment}-service"
   cluster         = aws_ecs_cluster.main.id
@@ -69,6 +64,11 @@ resource "aws_ecs_service" "main" {
     container_name   = "backend"
     container_port   = 3000
   }
+
+  depends_on = [
+    aws_lb_listener.http,
+    aws_lb_listener_rule.api,
+  ]
 }
 
 resource "aws_ecs_task_definition" "frontend" {
@@ -121,6 +121,8 @@ resource "aws_ecs_service" "frontend" {
     container_name   = "frontend"
     container_port   = 8080
   }
+
+  depends_on = [aws_lb_listener.http]
 }
 
 resource "aws_ecs_task_definition" "migration" {
@@ -134,8 +136,8 @@ resource "aws_ecs_task_definition" "migration" {
 
   container_definitions = jsonencode([
     {
-      name  = "migration"
-      image = "${var.ecr_repo_url}:migration"
+      name    = "migration"
+      image   = "${var.ecr_repo_url}:migration"
       command = ["sh", "-c", "npx prisma db push && echo 'Migration Complete'"]
       secrets = [
         {
