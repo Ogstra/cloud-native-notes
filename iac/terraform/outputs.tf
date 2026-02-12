@@ -17,3 +17,7 @@ output "ecs_security_group_id" {
 output "private_subnet_ids" {
   value = module.networking.private_subnets
 }
+
+output "public_subnet_ids" {
+  value = module.networking.public_subnets
+}

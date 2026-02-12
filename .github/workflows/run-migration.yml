@@ -30,7 +30,7 @@ jobs:
         run: |
           # Get outputs from Terraform state
           # We use jq to format the list of subnets into a comma-separated string
-          SUBNETS=$(terraform output -json private_subnet_ids | jq -r 'join(",")')
+          SUBNETS=$(terraform output -json public_subnet_ids | jq -r 'join(",")')
           SG=$(terraform output -raw ecs_security_group_id)
           
           echo "Subnets: $SUBNETS"
@@ -45,4 +45,4 @@ jobs:
             --cluster dev-cluster \
             --task-definition dev-migration \
             --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[${{ steps.infra.outputs.subnets }}],securityGroups=[${{ steps.infra.outputs.sg }}],assignPublicIp=DISABLED}"
+            --network-configuration "awsvpcConfiguration={subnets=[${{ steps.infra.outputs.subnets }}],securityGroups=[${{ steps.infra.outputs.sg }}],assignPublicIp=ENABLED}"
