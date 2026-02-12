@@ -1,7 +1,7 @@
-# Cloud Native Notes - CI/CD Portfolio
+# Cloud Native Notes - AWS CI/CD with GitHub Actions, Terraform, and ECS
 
 This repository showcases an AWS deployment pipeline using GitHub Actions and Terraform.
-This portfolio uses a single deployment flow to keep the focus on CI/CD mechanics.
+This project uses a single deployment flow to keep the focus on CI/CD mechanics.
 The same pipeline pattern can be extended to multi-environment promotion (`dev/stage/prod`).
 
 ## Goal
