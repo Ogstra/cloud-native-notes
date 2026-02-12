@@ -23,8 +23,7 @@ FROM node:20-bookworm AS prod-deps
 WORKDIR /app
 COPY app/backend/package.json ./
 COPY app/backend/prisma ./prisma
-RUN npm install --legacy-peer-deps
-RUN npm prune --production
+RUN npm install --omit=dev --legacy-peer-deps
 
 # Production Stage
 FROM gcr.io/distroless/nodejs20-debian12
