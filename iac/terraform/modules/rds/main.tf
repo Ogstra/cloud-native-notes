@@ -52,7 +52,7 @@ resource "aws_db_instance" "main" {
 resource "aws_ssm_parameter" "db_url" {
   name  = "/cloud-native-notes/${var.environment}/DATABASE_URL"
   type  = "SecureString"
-  value = "postgresql://postgres:${var.db_password}@${aws_db_instance.main.endpoint}/postgres?schema=public&sslmode=require"
+  value = "postgresql://postgres:${var.db_password}@${aws_db_instance.main.endpoint}/postgres?schema=public&sslmode=verify-full&sslrootcert=/app/certs/rds-combined-ca-bundle.pem"
 
   tags = {
     Environment = var.environment

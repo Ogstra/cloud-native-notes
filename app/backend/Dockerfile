@@ -35,6 +35,7 @@ COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/package.json ./package.json
+COPY app/backend/certs/rds-combined-ca-bundle.pem /app/certs/rds-combined-ca-bundle.pem
 
 EXPOSE 3000
 
