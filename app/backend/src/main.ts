@@ -18,15 +18,6 @@ async function bootstrap() {
     prefix: '/',
   });
 
-  // SPA fallback for client-side routes (avoid /api)
-  const express = app.getHttpAdapter().getInstance();
-  express.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api')) {
-      return next();
-    }
-    return res.sendFile(join(clientPath, 'index.html'));
-  });
-
   app.useGlobalPipes(new ValidationPipe({
     transform: true,
     whitelist: true,
