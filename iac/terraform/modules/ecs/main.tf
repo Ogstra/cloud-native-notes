@@ -28,8 +28,22 @@ resource "aws_ecs_task_definition" "app" {
           hostPort      = 3000
         }
       ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = "/ecs/${var.environment}-app"
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "backend"
+          "awslogs-create-group"  = "true"
+        }
+      }
     }
   ])
+}
+
+resource "aws_cloudwatch_log_group" "app" {
+  name              = "/ecs/${var.environment}-app"
+  retention_in_days = 7
 }
 
 resource "aws_ecs_service" "main" {
