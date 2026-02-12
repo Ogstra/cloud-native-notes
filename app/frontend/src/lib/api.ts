@@ -6,12 +6,8 @@ const getBaseUrl = () => {
         return envUrl;
     }
 
-    if (typeof window !== 'undefined') {
-        const { protocol, hostname } = window.location;
-        return `${protocol}//${hostname}:3000`;
-    }
-
-    return 'http://localhost:3000';
+    // In production (served by backend), use relative path
+    return '/api';
 };
 
 const api = axios.create({
