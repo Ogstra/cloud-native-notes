@@ -1,14 +1,14 @@
 # Deps Stage
 FROM node:20-bookworm AS deps
 WORKDIR /app
-COPY app/backend/package.json ./
-RUN npm install --ignore-scripts --legacy-peer-deps
+COPY app/backend/package.json app/backend/package-lock.json ./
+RUN npm ci --ignore-scripts --legacy-peer-deps --no-audit --progress=false
 
 # Frontend Build Stage
 FROM node:20-bookworm AS frontend-builder
 WORKDIR /app
-COPY app/frontend/package.json ./
-RUN npm install --ignore-scripts --legacy-peer-deps
+COPY app/frontend/package.json app/frontend/package-lock.json ./
+RUN npm ci --ignore-scripts --legacy-peer-deps --no-audit --progress=false
 COPY app/frontend/ .
 RUN npm run build
 
@@ -21,8 +21,8 @@ RUN npm run build
 # Prod Deps Stage
 FROM node:20-bookworm AS prod-deps
 WORKDIR /app
-COPY app/backend/package.json ./
-RUN npm install --omit=dev --legacy-peer-deps
+COPY app/backend/package.json app/backend/package-lock.json ./
+RUN npm ci --omit=dev --legacy-peer-deps --no-audit --progress=false
 
 # Production Stage
 FROM gcr.io/distroless/nodejs20-debian12

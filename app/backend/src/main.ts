@@ -13,8 +13,18 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   // Serve Static Assets (Frontend)
-  app.useStaticAssets(join(__dirname, '..', 'client'), {
+  const clientPath = join(__dirname, '..', 'client');
+  app.useStaticAssets(clientPath, {
     prefix: '/',
+  });
+
+  // SPA fallback for client-side routes (avoid /api)
+  const express = app.getHttpAdapter().getInstance();
+  express.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    return res.sendFile(join(clientPath, 'index.html'));
   });
 
   app.useGlobalPipes(new ValidationPipe({
