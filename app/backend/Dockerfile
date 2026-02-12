@@ -32,6 +32,7 @@ WORKDIR /app
 COPY --from=builder /app/dist ./dist
 COPY --from=frontend-builder /app/dist ./dist/client
 COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/package.json ./package.json
 
 EXPOSE 3000
