@@ -20,6 +20,28 @@ resource "aws_ecs_task_definition" "app" {
         {
           name      = "DATABASE_URL"
           valueFrom = var.db_url_ssm_arn
+        },
+        {
+          name      = "JWT_SECRET"
+          valueFrom = var.jwt_secret_ssm_arn
+        }
+      ]
+      environment = [
+        {
+          name  = "PORT"
+          value = "3000"
+        },
+        {
+          name  = "NODE_ENV"
+          value = "production"
+        },
+        {
+          name  = "LOG_LEVEL"
+          value = "info"
+        },
+        {
+          name  = "CORS_ORIGIN"
+          value = var.cors_origin
         }
       ]
       portMappings = [

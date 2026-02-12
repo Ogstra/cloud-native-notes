@@ -40,3 +40,14 @@ variable "migration_image_tag" {
   type        = string
   default     = "migration"
 }
+
+variable "jwt_secret_ssm_arn" {
+  description = "SSM SecureString ARN for backend JWT secret"
+  type        = string
+}
+
+variable "cors_origin" {
+  description = "Allowed CORS origin for backend API"
+  type        = string
+  default     = "*"
+}

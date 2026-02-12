@@ -56,4 +56,6 @@ module "ecs" {
   backend_image_tag   = var.backend_image_tag
   frontend_image_tag  = var.frontend_image_tag
   migration_image_tag = var.migration_image_tag
+  jwt_secret_ssm_arn  = var.jwt_secret_ssm_arn
+  cors_origin         = var.cors_origin
 }

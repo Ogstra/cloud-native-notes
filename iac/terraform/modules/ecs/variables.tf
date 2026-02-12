@@ -15,3 +15,7 @@ variable "frontend_image_tag" {
 variable "migration_image_tag" {
   default = "migration"
 }
+variable "jwt_secret_ssm_arn" {}
+variable "cors_origin" {
+  default = "*"
+}

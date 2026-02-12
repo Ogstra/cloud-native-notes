@@ -114,6 +114,11 @@ jobs:
           ASSIGN_PUBLIC_IP=$(echo "$NETWORK_JSON" | jq -r '.assignPublicIp')
 
           aws ecs describe-task-definition --task-definition "$BACKEND_SERVICE_TD" --query "taskDefinition" --output json > backend-td.json
+          HAS_JWT_SECRET=$(jq -r '[.containerDefinitions[] | select(.name == "backend") | (.secrets // [])[] | select(.name == "JWT_SECRET")] | length' backend-td.json)
+          if [ "$HAS_JWT_SECRET" = "0" ]; then
+            echo "Backend task definition is missing JWT_SECRET secret. Run Terraform apply first."
+            exit 1
+          fi
           jq --arg IMAGE "$BACKEND_IMAGE" '
             .containerDefinitions |= map(if .name == "backend" then .image = $IMAGE else . end)
             | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
