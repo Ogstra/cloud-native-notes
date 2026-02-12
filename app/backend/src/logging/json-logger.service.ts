@@ -14,7 +14,7 @@ type JsonLogPayload = {
 @Injectable()
 export class JsonLogger extends ConsoleLogger {
   constructor() {
-    super(undefined, {
+    super('App', {
       logLevels: resolveLogLevels(),
     });
   }
