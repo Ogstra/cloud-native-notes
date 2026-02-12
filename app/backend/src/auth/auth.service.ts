@@ -15,14 +15,15 @@ export class AuthService {
 
     async loginGuest() {
         const suffix = Math.floor(1000 + Math.random() * 9000);
-        const email = `guest_${Date.now()}_${suffix}@demo.local`;
-        const password = `guest_${Date.now()}`;
+        const unique = `${Date.now()}_${suffix}`;
+        const email = `guest_${unique}@demo.local`;
+        const password = `guest_${unique}`;
         const hashedPassword = await bcrypt.hash(password, 10);
 
         const user = await this.prisma.user.create({
             data: {
                 email,
-                username: `Guest ${suffix}`,
+                username: `Guest_${unique}`,
                 password: hashedPassword,
             },
         });
