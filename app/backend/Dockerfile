@@ -1,20 +1,21 @@
 # Deps Stage
 FROM node:20-bookworm AS deps
 WORKDIR /app
-COPY package*.json ./
+COPY app/backend/package*.json ./
 RUN npm ci
 
 # Frontend Build Stage
 FROM node:20-bookworm AS frontend-builder
 WORKDIR /app
-COPY ../frontend/package*.json ./
+COPY app/frontend/package*.json ./
 RUN npm ci
-COPY ../frontend/ .
+COPY app/frontend/ .
 RUN npm run build
 
 # Backend Build Stage
 FROM deps AS builder
-COPY . .
+WORKDIR /app
+COPY app/backend/ .
 RUN npm run build
 
 # Prune Stage
