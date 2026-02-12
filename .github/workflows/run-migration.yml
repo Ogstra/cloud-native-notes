@@ -4,57 +4,53 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-${{ github.ref }}
+  group: migration-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
   id-token: write
   contents: read
 
+env:
+  AWS_REGION: us-east-1
+  ECS_CLUSTER: dev-cluster
+  ECS_SERVICE: dev-service
+  ECS_MIGRATION_TASK_FAMILY: dev-migration
+
 jobs:
   migrate:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           role-session-name: github-actions-migration
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Init
-        working-directory: ./iac/terraform
-        run: terraform init
-
-      - name: Get Infrastructure Details
-        id: infra
-        working-directory: ./iac/terraform
+      - name: Read Service Networking
+        id: net
         run: |
-          # Get outputs from Terraform state
-          # We use jq to format the list of subnets into a comma-separated string
-          SUBNETS=$(terraform output -json public_subnet_ids | jq -r 'join(",")')
-          SG=$(terraform output -raw ecs_security_group_id)
-          
-          echo "Subnets: $SUBNETS"
-          echo "Security Group: $SG"
-          
-          echo "subnets=$SUBNETS" >> $GITHUB_OUTPUT
-          echo "sg=$SG" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          NETWORK_JSON=$(aws ecs describe-services \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE \
+            --query "services[0].networkConfiguration.awsvpcConfiguration" \
+            --output json)
+
+          echo "subnets=$(echo "$NETWORK_JSON" | jq -r '.subnets | join(",")')" >> $GITHUB_OUTPUT
+          echo "security_groups=$(echo "$NETWORK_JSON" | jq -r '.securityGroups | join(",")')" >> $GITHUB_OUTPUT
+          echo "assign_public_ip=$(echo "$NETWORK_JSON" | jq -r '.assignPublicIp')" >> $GITHUB_OUTPUT
 
       - name: Run Migration Task
         id: run-task
         run: |
+          set -euo pipefail
           TASK_ARN=$(aws ecs run-task \
-            --cluster dev-cluster \
-            --task-definition dev-migration \
+            --cluster $ECS_CLUSTER \
+            --task-definition $ECS_MIGRATION_TASK_FAMILY \
             --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[${{ steps.infra.outputs.subnets }}],securityGroups=[${{ steps.infra.outputs.sg }}],assignPublicIp=ENABLED}" \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ steps.net.outputs.subnets }}],securityGroups=[${{ steps.net.outputs.security_groups }}],assignPublicIp=${{ steps.net.outputs.assign_public_ip }}}" \
             --query 'tasks[0].taskArn' \
             --output text)
 
@@ -67,10 +63,11 @@ jobs:
 
       - name: Wait Migration Completion
         run: |
-          aws ecs wait tasks-stopped --cluster dev-cluster --tasks "${{ steps.run-task.outputs.task_arn }}"
+          set -euo pipefail
+          aws ecs wait tasks-stopped --cluster $ECS_CLUSTER --tasks "${{ steps.run-task.outputs.task_arn }}"
 
           EXIT_CODE=$(aws ecs describe-tasks \
-            --cluster dev-cluster \
+            --cluster $ECS_CLUSTER \
             --tasks "${{ steps.run-task.outputs.task_arn }}" \
             --query "tasks[0].containers[?name=='migration'] | [0].exitCode" \
             --output text)

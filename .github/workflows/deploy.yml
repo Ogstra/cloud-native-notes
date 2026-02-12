@@ -1,35 +1,35 @@
-name: Deploy Project C
+name: Deploy Application
 
 on:
   push:
     branches:
       - main
     paths:
-      - '**'
+      - "app/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
 
 concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  id-token: write # This is required for requesting the JWT
-  contents: read  # This is required for actions/checkout
+  id-token: write
+  contents: read
 
 env:
-  AWS_REGION: us-east-1 # Change to your region
-  ECR_REPOSITORY_BACKEND: dev-backend # Must match Terraform Resource Name
-  ECR_REPOSITORY_FRONTEND: dev-frontend # Must match Terraform Resource Name
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY_BACKEND: dev-backend
+  ECR_REPOSITORY_FRONTEND: dev-frontend
   ECS_SERVICE: dev-service
   ECS_SERVICE_FRONTEND: dev-frontend-service
   ECS_CLUSTER: dev-cluster
-  ECS_TASK_DEFINITION: dev-app
-  CONTAINER_NAME: backend
+  ECS_MIGRATION_TASK_FAMILY: dev-migration
 
 jobs:
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
-
 
     steps:
       - name: Checkout
@@ -46,73 +46,107 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Init
-        id: init
-        working-directory: ./iac/terraform
-        run: terraform init
-
-      - name: Get ECR Registry
-        id: get-registry
-        run: echo "registry=${{ steps.login-ecr.outputs.registry }}" >> $GITHUB_OUTPUT
-
-      - name: Build, tag, and push image to Amazon ECR
+      - name: Build and Push Images
         id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
-        working-directory: .
         run: |
-          # Build a docker container and
-          # push it to ECR so that it can
-          # be deployed to ECS.
+          set -euo pipefail
           MIGRATION_TAG="${IMAGE_TAG}-migration"
 
           docker build -f app/backend/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest
 
-          # Build and Push Migration Image (Builder Stage)
           docker build --target builder -f app/backend/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$MIGRATION_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$MIGRATION_TAG
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$MIGRATION_TAG $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:migration
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:migration
 
-          # Build and Push Frontend Image
           docker build -f app/frontend/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG ./app/frontend
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
 
-          echo "backend_image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
-          echo "frontend_image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
-          echo "migration_image_tag=$MIGRATION_TAG" >> $GITHUB_OUTPUT
+          echo "backend_image=$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "frontend_image=$ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "migration_image=$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$MIGRATION_TAG" >> $GITHUB_OUTPUT
 
-      - name: Terraform Apply
-        working-directory: ./iac/terraform
+      - name: Register Task Definitions
+        id: taskdefs
         env:
-          TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
-          TF_VAR_backend_image_tag: ${{ steps.build-image.outputs.backend_image_tag }}
-          TF_VAR_frontend_image_tag: ${{ steps.build-image.outputs.frontend_image_tag }}
-          TF_VAR_migration_image_tag: ${{ steps.build-image.outputs.migration_image_tag }}
-        run: terraform apply -auto-approve -input=false
-
-      - name: Get Infrastructure Details
-        id: infra
-        working-directory: ./iac/terraform
+          BACKEND_IMAGE: ${{ steps.build-image.outputs.backend_image }}
+          FRONTEND_IMAGE: ${{ steps.build-image.outputs.frontend_image }}
+          MIGRATION_IMAGE: ${{ steps.build-image.outputs.migration_image }}
         run: |
-          SUBNETS=$(terraform output -json public_subnet_ids | jq -r 'join(",")')
-          SG=$(terraform output -raw ecs_security_group_id)
+          set -euo pipefail
+
+          BACKEND_SERVICE_TD=$(aws ecs describe-services \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE \
+            --query "services[0].taskDefinition" \
+            --output text)
+
+          FRONTEND_SERVICE_TD=$(aws ecs describe-services \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE_FRONTEND \
+            --query "services[0].taskDefinition" \
+            --output text)
+
+          MIGRATION_TD=$(aws ecs describe-task-definition \
+            --task-definition $ECS_MIGRATION_TASK_FAMILY \
+            --query "taskDefinition.taskDefinitionArn" \
+            --output text)
+
+          NETWORK_JSON=$(aws ecs describe-services \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE \
+            --query "services[0].networkConfiguration.awsvpcConfiguration" \
+            --output json)
+
+          SUBNETS=$(echo "$NETWORK_JSON" | jq -r '.subnets | join(",")')
+          SECURITY_GROUPS=$(echo "$NETWORK_JSON" | jq -r '.securityGroups | join(",")')
+          ASSIGN_PUBLIC_IP=$(echo "$NETWORK_JSON" | jq -r '.assignPublicIp')
+
+          aws ecs describe-task-definition --task-definition "$BACKEND_SERVICE_TD" --query "taskDefinition" --output json > backend-td.json
+          jq --arg IMAGE "$BACKEND_IMAGE" '
+            .containerDefinitions |= map(if .name == "backend" then .image = $IMAGE else . end)
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
+          ' backend-td.json > backend-td-rendered.json
+          NEW_BACKEND_TD=$(aws ecs register-task-definition --cli-input-json file://backend-td-rendered.json --query "taskDefinition.taskDefinitionArn" --output text)
+
+          aws ecs describe-task-definition --task-definition "$FRONTEND_SERVICE_TD" --query "taskDefinition" --output json > frontend-td.json
+          jq --arg IMAGE "$FRONTEND_IMAGE" '
+            .containerDefinitions |= map(if .name == "frontend" then .image = $IMAGE else . end)
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
+          ' frontend-td.json > frontend-td-rendered.json
+          NEW_FRONTEND_TD=$(aws ecs register-task-definition --cli-input-json file://frontend-td-rendered.json --query "taskDefinition.taskDefinitionArn" --output text)
+
+          aws ecs describe-task-definition --task-definition "$MIGRATION_TD" --query "taskDefinition" --output json > migration-td.json
+          jq --arg IMAGE "$MIGRATION_IMAGE" '
+            .containerDefinitions |= map(if .name == "migration" then .image = $IMAGE else . end)
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
+          ' migration-td.json > migration-td-rendered.json
+          NEW_MIGRATION_TD=$(aws ecs register-task-definition --cli-input-json file://migration-td-rendered.json --query "taskDefinition.taskDefinitionArn" --output text)
+
+          echo "backend_td=$NEW_BACKEND_TD" >> $GITHUB_OUTPUT
+          echo "frontend_td=$NEW_FRONTEND_TD" >> $GITHUB_OUTPUT
+          echo "migration_td=$NEW_MIGRATION_TD" >> $GITHUB_OUTPUT
           echo "subnets=$SUBNETS" >> $GITHUB_OUTPUT
-          echo "sg=$SG" >> $GITHUB_OUTPUT
+          echo "security_groups=$SECURITY_GROUPS" >> $GITHUB_OUTPUT
+          echo "assign_public_ip=$ASSIGN_PUBLIC_IP" >> $GITHUB_OUTPUT
 
       - name: Run Migration Task And Wait
-        env:
-          SUBNETS: ${{ steps.infra.outputs.subnets }}
-          SG: ${{ steps.infra.outputs.sg }}
         run: |
+          set -euo pipefail
+
           TASK_ARN=$(aws ecs run-task \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --task-definition dev-migration \
+            --cluster $ECS_CLUSTER \
+            --task-definition "${{ steps.taskdefs.outputs.migration_td }}" \
             --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=ENABLED}" \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ steps.taskdefs.outputs.subnets }}],securityGroups=[${{ steps.taskdefs.outputs.security_groups }}],assignPublicIp=${{ steps.taskdefs.outputs.assign_public_ip }}}" \
             --query 'tasks[0].taskArn' \
             --output text)
 
@@ -121,10 +155,10 @@ jobs:
             exit 1
           fi
 
-          aws ecs wait tasks-stopped --cluster ${{ env.ECS_CLUSTER }} --tasks "$TASK_ARN"
+          aws ecs wait tasks-stopped --cluster $ECS_CLUSTER --tasks "$TASK_ARN"
 
           EXIT_CODE=$(aws ecs describe-tasks \
-            --cluster ${{ env.ECS_CLUSTER }} \
+            --cluster $ECS_CLUSTER \
             --tasks "$TASK_ARN" \
             --query "tasks[0].containers[?name=='migration'] | [0].exitCode" \
             --output text)
@@ -135,11 +169,10 @@ jobs:
             exit 1
           fi
 
-
-      
-      # Alternative: Force deployment if TF manages Task Def
-      - name: Force ECS Deployment
+      - name: Update Services And Wait
         run: |
-          aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --force-new-deployment
-          aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE_FRONTEND }} --force-new-deployment
-          aws ecs wait services-stable --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }} ${{ env.ECS_SERVICE_FRONTEND }}
+          set -euo pipefail
+
+          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition "${{ steps.taskdefs.outputs.backend_td }}"
+          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE_FRONTEND --task-definition "${{ steps.taskdefs.outputs.frontend_td }}"
+          aws ecs wait services-stable --cluster $ECS_CLUSTER --services $ECS_SERVICE $ECS_SERVICE_FRONTEND
