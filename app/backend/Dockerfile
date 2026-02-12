@@ -22,7 +22,6 @@ RUN npm run build
 FROM node:20-bookworm AS prod-deps
 WORKDIR /app
 COPY app/backend/package.json ./
-COPY app/backend/prisma ./prisma
 RUN npm install --omit=dev --legacy-peer-deps
 
 # Production Stage
