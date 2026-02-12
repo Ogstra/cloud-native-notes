@@ -22,3 +22,21 @@ variable "db_password" {
   sensitive   = true
   # In production, this should be passed via environment variable or secrets manager
 }
+
+variable "backend_image_tag" {
+  description = "Backend image tag deployed in ECS"
+  type        = string
+  default     = "latest"
+}
+
+variable "frontend_image_tag" {
+  description = "Frontend image tag deployed in ECS"
+  type        = string
+  default     = "latest"
+}
+
+variable "migration_image_tag" {
+  description = "Migration image tag deployed in ECS"
+  type        = string
+  default     = "migration"
+}

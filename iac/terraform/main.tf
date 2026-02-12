@@ -44,13 +44,16 @@ module "rds" {
 }
 
 module "ecs" {
-  source             = "./modules/ecs"
-  environment        = var.environment
-  vpc_id             = module.networking.vpc_id
-  public_subnet_ids  = module.networking.public_subnets
-  private_subnet_ids = module.networking.private_subnets
-  ecr_repo_url       = module.ecr.backend_repo_url
-  frontend_repo_url  = module.ecr.frontend_repo_url
-  db_url_ssm_arn     = module.rds.db_url_ssm_arn
-  aws_region         = var.aws_region
+  source              = "./modules/ecs"
+  environment         = var.environment
+  vpc_id              = module.networking.vpc_id
+  public_subnet_ids   = module.networking.public_subnets
+  private_subnet_ids  = module.networking.private_subnets
+  ecr_repo_url        = module.ecr.backend_repo_url
+  frontend_repo_url   = module.ecr.frontend_repo_url
+  db_url_ssm_arn      = module.rds.db_url_ssm_arn
+  aws_region          = var.aws_region
+  backend_image_tag   = var.backend_image_tag
+  frontend_image_tag  = var.frontend_image_tag
+  migration_image_tag = var.migration_image_tag
 }

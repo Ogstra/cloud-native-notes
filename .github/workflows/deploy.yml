@@ -38,10 +38,9 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: github-actions-deploy
           aws-region: ${{ env.AWS_REGION }}
-          # For OIDC, use role-to-assume instead of keys
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -54,16 +53,6 @@ jobs:
         id: init
         working-directory: ./iac/terraform
         run: terraform init
-
-      # In a real scenario, you might separate Infra Deploy from App Deploy
-      # For this portfolio, we'll do both or just App Deploy if Infra is stable.
-      # Let's assume Infra is provisioned manually first or via Terraform Apply here.
-      
-      - name: Terraform Apply
-        working-directory: ./iac/terraform
-        env:
-          TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
-        run: terraform apply -auto-approve -input=false
 
       - name: Get ECR Registry
         id: get-registry
@@ -79,21 +68,31 @@ jobs:
           # Build a docker container and
           # push it to ECR so that it can
           # be deployed to ECS.
+          MIGRATION_TAG="${IMAGE_TAG}-migration"
+
           docker build -f app/backend/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
           # Build and Push Migration Image (Builder Stage)
-          docker build --target builder -f app/backend/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:migration .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:migration
+          docker build --target builder -f app/backend/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$MIGRATION_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$MIGRATION_TAG
 
           # Build and Push Frontend Image
           docker build -f app/frontend/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG ./app/frontend
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
+
+          echo "backend_image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "frontend_image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "migration_image_tag=$MIGRATION_TAG" >> $GITHUB_OUTPUT
+
+      - name: Terraform Apply
+        working-directory: ./iac/terraform
+        env:
+          TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
+          TF_VAR_backend_image_tag: ${{ steps.build-image.outputs.backend_image_tag }}
+          TF_VAR_frontend_image_tag: ${{ steps.build-image.outputs.frontend_image_tag }}
+          TF_VAR_migration_image_tag: ${{ steps.build-image.outputs.migration_image_tag }}
+        run: terraform apply -auto-approve -input=false
 
       - name: Get Infrastructure Details
         id: infra

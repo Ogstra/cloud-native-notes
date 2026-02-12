@@ -14,7 +14,7 @@ resource "aws_ecs_task_definition" "app" {
   container_definitions = jsonencode([
     {
       name  = "backend"
-      image = "${var.ecr_repo_url}:latest"
+      image = "${var.ecr_repo_url}:${var.backend_image_tag}"
 
       secrets = [
         {
@@ -83,7 +83,7 @@ resource "aws_ecs_task_definition" "frontend" {
   container_definitions = jsonencode([
     {
       name  = "frontend"
-      image = "${var.frontend_repo_url}:latest"
+      image = "${var.frontend_repo_url}:${var.frontend_image_tag}"
       portMappings = [
         {
           containerPort = 8080
@@ -137,8 +137,8 @@ resource "aws_ecs_task_definition" "migration" {
   container_definitions = jsonencode([
     {
       name    = "migration"
-      image   = "${var.ecr_repo_url}:migration"
-      command = ["sh", "-c", "npx prisma db push && echo 'Migration Complete'"]
+      image   = "${var.ecr_repo_url}:${var.migration_image_tag}"
+      command = ["sh", "-c", "npx prisma migrate deploy && echo 'Migration Complete'"]
       secrets = [
         {
           name      = "DATABASE_URL"
