@@ -1,0 +1,3 @@
+# Keep repository language stats aligned with the DevOps/IaC focus.
+# Application source is excluded from Linguist language breakdown.
+app/** linguist-vendored
