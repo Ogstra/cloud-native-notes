@@ -34,7 +34,17 @@ resource "aws_iam_role_policy" "ssm_access" {
           "ssm:GetParameters",
           "ssm:GetParameter"
         ]
-        Resource = var.db_url_ssm_arn
+        Resource = [
+          var.db_url_ssm_arn,
+          var.jwt_secret_ssm_arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt"
+        ]
+        Resource = "*"
       }
     ]
   })
