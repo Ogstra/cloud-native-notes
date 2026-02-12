@@ -116,9 +116,20 @@ jobs:
           ASSIGN_PUBLIC_IP=$(echo "$NETWORK_JSON" | jq -r '.assignPublicIp')
 
           aws ecs describe-task-definition --task-definition "$BACKEND_SERVICE_TD" --query "taskDefinition" --output json > backend-td.json
+          HAS_DATABASE_URL=$(jq -r '[.containerDefinitions[] | select(.name == "backend") | (.secrets // [])[] | select(.name == "DATABASE_URL")] | length' backend-td.json)
           HAS_JWT_SECRET=$(jq -r '[.containerDefinitions[] | select(.name == "backend") | (.secrets // [])[] | select(.name == "JWT_SECRET")] | length' backend-td.json)
+          HAS_PORT=$(jq -r '[.containerDefinitions[] | select(.name == "backend") | (.environment // [])[] | select(.name == "PORT")] | length' backend-td.json)
+
+          if [ "$HAS_DATABASE_URL" = "0" ]; then
+            echo "Backend task definition is missing DATABASE_URL secret. Run Terraform apply first."
+            exit 1
+          fi
           if [ "$HAS_JWT_SECRET" = "0" ]; then
             echo "Backend task definition is missing JWT_SECRET secret. Run Terraform apply first."
+            exit 1
+          fi
+          if [ "$HAS_PORT" = "0" ]; then
+            echo "Backend task definition is missing PORT environment variable. Run Terraform apply first."
             exit 1
           fi
           jq --arg IMAGE "$BACKEND_IMAGE" '
@@ -201,6 +212,7 @@ jobs:
             local timeout_seconds=1800
             local interval=15
             local elapsed=0
+            local zero_running_cycles=0
 
             echo "Waiting for ECS service to stabilize: $service"
 
@@ -217,6 +229,17 @@ jobs:
 
               if [ "$PRIMARY_ROLLOUT" = "FAILED" ]; then
                 echo "Primary deployment failed for service: $service"
+                return 1
+              fi
+
+              if [ "$RUNNING" = "0" ] && [ "$PENDING" = "0" ]; then
+                zero_running_cycles=$((zero_running_cycles + 1))
+              else
+                zero_running_cycles=0
+              fi
+
+              if [ "$zero_running_cycles" -ge 4 ]; then
+                echo "Service has no running or pending tasks for a sustained period: $service"
                 return 1
               fi
 

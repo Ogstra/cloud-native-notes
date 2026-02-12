@@ -16,7 +16,7 @@ export function validateEnv(config: EnvShape) {
   }
 
   const logLevel = config.LOG_LEVEL?.toLowerCase() ?? 'info';
-  const allowedLogLevels = ['error', 'warn', 'log', 'debug', 'verbose'];
+  const allowedLogLevels = ['error', 'warn', 'log', 'info', 'debug', 'verbose'];
   if (!allowedLogLevels.includes(logLevel)) {
     throw new Error(
       `Invalid LOG_LEVEL "${config.LOG_LEVEL}". Expected one of: ${allowedLogLevels.join(', ')}`,
