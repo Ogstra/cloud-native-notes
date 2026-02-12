@@ -12,6 +12,7 @@ import { CategoriesModule } from './categories/categories.module';
   imports: [
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'client'),
+      renderPath: '/(.*)',
       exclude: ['/api/(.*)'],
     }),
     AuthModule,
