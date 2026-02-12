@@ -1,0 +1,93 @@
+name: Deploy Project C
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**'
+
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: read  # This is required for actions/checkout
+
+env:
+  AWS_REGION: us-east-1 # Change to your region
+  ECR_REPOSITORY_BACKEND: dev-backend # Must match Terraform Resource Name
+  ECS_SERVICE: dev-service
+  ECS_CLUSTER: dev-cluster
+  ECS_TASK_DEFINITION: dev-app
+  CONTAINER_NAME: backend
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+          # For OIDC, use role-to-assume instead of keys
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Terraform Init
+        id: init
+        working-directory: ./iac/terraform
+        run: terraform init -backend=false # Using local backend for demo, use S3 in prod
+
+      # In a real scenario, you might separate Infra Deploy from App Deploy
+      # For this portfolio, we'll do both or just App Deploy if Infra is stable.
+      # Let's assume Infra is provisioned manually first or via Terraform Apply here.
+      
+      - name: Terraform Apply
+        working-directory: ./iac/terraform
+        env:
+          TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
+        run: terraform apply -auto-approve -input=false
+        continue-on-error: true # For demo purposes if it fails due to existing resources
+
+      - name: Get ECR Registry
+        id: get-registry
+        run: echo "registry=${{ steps.login-ecr.outputs.registry }}" >> $GITHUB_OUTPUT
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        working-directory: ./app/backend
+        run: |
+          # Build a docker container and
+          # push it to ECR so that it can
+          # be deployed to ECS.
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+          # Build and Push Migration Image (Builder Stage)
+          docker build --target builder -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:migration .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:migration
+
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: iac/terraform/task-definition.json # You need to export this or let TF manage it
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
+      
+      # Alternative: Force deployment if TF manages Task Def
+      - name: Force ECS Deployment
+        run: |
+          aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --force-new-deployment
