@@ -2,13 +2,13 @@
 FROM node:20-bookworm AS deps
 WORKDIR /app
 COPY app/backend/package*.json ./
-RUN npm ci
+RUN npm install
 
 # Frontend Build Stage
 FROM node:20-bookworm AS frontend-builder
 WORKDIR /app
 COPY app/frontend/package*.json ./
-RUN npm ci
+RUN npm install
 COPY app/frontend/ .
 RUN npm run build
 
