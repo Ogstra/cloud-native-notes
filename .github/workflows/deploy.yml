@@ -204,15 +204,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition "${{ steps.taskdefs.outputs.backend_td }}"
-          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE_FRONTEND --task-definition "${{ steps.taskdefs.outputs.frontend_td }}"
+          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition "${{ steps.taskdefs.outputs.backend_td }}" --force-new-deployment
+          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE_FRONTEND --task-definition "${{ steps.taskdefs.outputs.frontend_td }}" --force-new-deployment
 
           wait_for_service() {
             local service="$1"
             local timeout_seconds=1800
             local interval=15
             local elapsed=0
-            local zero_running_cycles=0
 
             echo "Waiting for ECS service to stabilize: $service"
 
@@ -232,18 +231,7 @@ jobs:
                 return 1
               fi
 
-              if [ "$RUNNING" = "0" ] && [ "$PENDING" = "0" ]; then
-                zero_running_cycles=$((zero_running_cycles + 1))
-              else
-                zero_running_cycles=0
-              fi
-
-              if [ "$zero_running_cycles" -ge 4 ]; then
-                echo "Service has no running or pending tasks for a sustained period: $service"
-                return 1
-              fi
-
-              if [ "$RUNNING" = "$DESIRED" ] && [ "$PENDING" = "0" ] && [ "$IN_PROGRESS_DEPLOYS" = "0" ]; then
+              if [ "$RUNNING" = "$DESIRED" ] && [ "$PENDING" = "0" ] && [ "$PRIMARY_ROLLOUT" = "COMPLETED" ]; then
                 echo "Service stabilized: $service"
                 return 0
               fi
