@@ -23,7 +23,7 @@ jobs:
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
-    environment: production
+
 
     steps:
       - name: Checkout
@@ -44,7 +44,7 @@ jobs:
       - name: Terraform Init
         id: init
         working-directory: ./iac/terraform
-        run: terraform init -backend=false # Using local backend for demo, use S3 in prod
+        run: terraform init
 
       # In a real scenario, you might separate Infra Deploy from App Deploy
       # For this portfolio, we'll do both or just App Deploy if Infra is stable.
@@ -73,19 +73,15 @@ jobs:
           # be deployed to ECS.
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
           # Build and Push Migration Image (Builder Stage)
           docker build --target builder -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:migration .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:migration
 
-      - name: Fill in the new image ID in the Amazon ECS task definition
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: iac/terraform/task-definition.json # You need to export this or let TF manage it
-          container-name: ${{ env.CONTAINER_NAME }}
-          image: ${{ steps.build-image.outputs.image }}
+
       
       # Alternative: Force deployment if TF manages Task Def
       - name: Force ECS Deployment
